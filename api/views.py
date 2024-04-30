@@ -3,8 +3,9 @@ from google.cloud import pubsub_v1
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
-
+from ast import literal_eval
 from .models import Item, Stock
 from .serializers import ItemSerializer, StockSerializer
 
@@ -56,5 +57,33 @@ class StockViewSet(ModelViewSet):
 
         return Response(
             {"status": "OK", "data": updated_serializer.data},
+            status=status.HTTP_200_OK,
+        )
+
+
+class ReceiveLowItemStockViews(APIView):
+    subscriber = pubsub_v1.SubscriberClient()
+
+    def get(self, request: Request, *args, **kwargs):
+        subscription_path = self.subscriber.subscription_path(
+            "testing-pubsub", "stock-subscription"
+        )
+        response = self.subscriber.pull(
+            request={"subscription": subscription_path, "max_messages": 10}
+        )
+        ack_ids = []
+        items = []
+        for received_message in response.received_messages:
+            item_data = received_message.message.data.decode("utf-8")
+            items.append(literal_eval(item_data))
+            ack_ids.append(received_message.ack_id)
+
+        if ack_ids:
+            self.subscriber.acknowledge(
+                request={"subscription": subscription_path, "ack_ids": ack_ids}
+            )
+
+        return Response(
+            {"status": "OK", "data": items},
             status=status.HTTP_200_OK,
         )
